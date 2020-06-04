@@ -85,7 +85,17 @@ struct Txn {
     recipient: Address,
     amount: f64,
     timestamp: u128,
-    // message: &str,
+    signature: Vec<u8>,
+}
+
+trait CanSerialize {
+    fn to_bytes(&self) -> Vec<u8>;
+}
+
+impl CanSerialize for Txn {
+    fn to_bytes(&self) -> Vec<u8> {
+        bincode::serialize(self).expect("Could not serialize transaction")
+    }
 }
 
 impl Txn {
@@ -96,13 +106,28 @@ impl Txn {
             recipient: recipient.address,
             amount,
             timestamp: Instant::now().elapsed().as_millis(),
+            signature: Vec::new(),
         };
         txn.hash();
         txn
     }
 
-    fn verify() {} // With digital signatures
-    fn sign() {}
+    // Needs the public key only
+    fn verify(&self, key: PublicKey) -> Valid {
+        let signature = Signature::from_bytes(&self.signature)
+            .expect("Invalid signature");
+        match key.verify::<Sha512>(&self.to_bytes()[..], &signature) {
+            Ok(_) => return Valid::Valid,
+            Err(_) => return Valid::Invalid,
+        }
+    }
+
+    // Needs the private key
+    fn sign(&mut self, key: Keypair) {
+        let self_bytes = &self.to_bytes()[..]; // Serialize self
+        let signature = key.sign::<Sha512>(self_bytes); // Calc the signature
+        self.signature = signature.to_bytes().to_vec(); // Set the signature
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -177,8 +202,7 @@ impl Hashable for Block {
 
 impl Hashable for Txn {
     fn hash(&mut self) {
-        let bytes = &bincode::serialize(self)
-            .expect("Could not serialize transaction");
+        let bytes = &self.to_bytes();
         self.id = *blake3::hash(bytes).as_bytes();
     }
 }
