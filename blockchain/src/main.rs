@@ -85,6 +85,7 @@ struct Txn {
     recipient: Address,
     amount: f64,
     timestamp: u128,
+    signature: [u8; 64],
     // message: &str,
 }
 
@@ -96,13 +97,21 @@ impl Txn {
             recipient: recipient.address,
             amount,
             timestamp: Instant::now().elapsed().as_millis(),
+            signature: Vec<u8>, 
         };
         txn.hash();
         txn
     }
 
     fn verify() {} // With digital signatures
-    fn sign() {}
+    fn sign(&self, keypair: Keypair) -> [u8; 64] {
+        keypair
+            .sign::<Sha512>(
+                &bincode::serialize(self)
+                    .expect("Could not serialize block"),
+            )
+            .to_bytes()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
