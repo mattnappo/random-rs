@@ -76,6 +76,20 @@ impl User {
 
         keypair
     }
+
+    fn get_keypair(uid: &str) -> Keypair {
+        let mut f = File::open(format!("secret/{}.priv", uid))
+            .expect("Could not open secret file");
+
+        let mut buffer = Vec::new();
+        f.read_to_end(&mut buffer)
+            .expect("Could not read from secret file");
+
+        let keypair = Keypair::from_bytes(&buffer[..])
+            .expect("Could not deserialize secret");
+
+        keypair
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -116,14 +130,20 @@ impl Txn {
     fn verify(&self, key: PublicKey) -> Valid {
         let signature = Signature::from_bytes(&self.signature)
             .expect("Invalid signature");
-        match key.verify::<Sha512>(&self.to_bytes()[..], &signature) {
+        let no_sig = Self {
+            signature: Vec::new(),
+            ..*self
+        };
+        let no_sig: &[u8] = &no_sig.to_bytes()[..];
+
+        match key.verify::<Sha512>(no_sig, &signature) {
             Ok(_) => return Valid::Valid,
             Err(_) => return Valid::Invalid,
         }
     }
 
     // Needs the private key
-    fn sign(&mut self, key: Keypair) {
+    fn sign(&mut self, key: &Keypair) {
         let self_bytes = &self.to_bytes()[..]; // Serialize self
         let signature = key.sign::<Sha512>(self_bytes); // Calc the signature
         self.signature = signature.to_bytes().to_vec(); // Set the signature
@@ -266,12 +286,15 @@ impl Blockchain {
 fn main() {
     // Make some users
     let user1 = User::from_uid("new_user");
+    let user1_privkey = User::get_keypair("new_user");
     let user2 = User::new("user2");
 
     // Make some txns
     let mut txns1 = Txns::new();
     for amount in vec![10.0, 11.0, 12.0] {
-        txns1.add(Txn::new(&user1, &user2, amount));
+        let mut txn = Txn::new(&user1, &user2, amount);
+        txn.sign(&user1_privkey);
+        txns1.add(txn);
     }
     txns1.calc_merkle_root(); // Calc the merkle root hash
     assert!(match txns1.verify() {
@@ -300,4 +323,14 @@ fn main() {
     let mut blockchain = Blockchain::new();
     blockchain.add_block(block1);
     blockchain.add_block(block2);
+
+    /* ----- VALIDATION ----- */
+    let t_txn = &blockchain.blocks[0].txns.txns[0];
+    println!(
+        "txn 0 in block 0 is {}",
+        match t_txn.verify(user1.public_key) {
+            Valid::Valid => "valid!",
+            Valid::Invalid => "invalid!",
+        }
+    );
 }
